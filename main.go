@@ -10,45 +10,133 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"os/signal"
 )
 
 func main() {
 	njobs := flag.Int("j", 1, "Number of concurrent jobs")
 	flag.Parse()
 
+	if *njobs < 1 {
+		log.Fatal("Error: Please specify >= 1 jobs")
+	}
 	subject := os.Args[len(os.Args)-flag.NArg():]
 
-	fmt.Println("CMD: ", os.Args)
+	fmt.Println("Executing command ", subject, " repeatedly in ", *njobs, " job(s)")
 
-	fmt.Println("njobs =", *njobs, "(ignored)")
-	fmt.Println("command =", subject)
+	runs := make(chan Run, 1024)
+	done := make(chan bool, 1)
 
-	oupfile, tmpf_err := ioutil.TempFile("", ".tofail_oup")
-	if tmpf_err != nil {
-		log.Fatal(tmpf_err)
+	sigint := make(chan os.Signal)
+	signal.Notify(sigint, os.Interrupt)
+
+	var quitChans []chan bool
+	for i := 0; i < *njobs; i++ {
+		quitChans = append(quitChans, make(chan bool))
+		go run(subject, runs, quitChans[len(quitChans)-1], done)
 	}
-	defer os.Remove(oupfile.Name())
-	// TODO Ctrl-C handler
 
-	cmd := exec.Command(subject[0], subject[1:]...)
-	cmd.Stdout = oupfile
-	cmd.Stderr = oupfile
-	err := cmd.Run()
-	if err != nil {
-		switch e := err.(type) {
-		case *exec.Error:
-			log.Fatal("failed executing:", err)
-		case *exec.ExitError:
-			fmt.Println("command exit rc =", e.ExitCode())
+	quitting := false
+	quitAll := func() bool {
+		if quitting {
+			return false
+		}
+		quitting = true
+		for _, c := range quitChans {
+			c <- true
+			close(c)
+		}
+		return true
+	}
 
-			oupfile.Seek(0, 0)
-			oup, readerr := io.ReadAll(oupfile)
-			if readerr != nil {
-				log.Fatal(readerr)
+	nFailed := 0
+	for jobsDone := 0; jobsDone < *njobs; {
+		select {
+		case <-done:
+			jobsDone += 1
+		case run := <-runs:
+			switch run.result {
+			case RUNRES_FAILED_EXECUTING:
+				if quitAll() {
+					println(">> Failed to execute command, quitting all jobs!")
+				}
+				os.Remove(run.oupfile.Name())
+			case RUNRES_OK:
+				os.Remove(run.oupfile.Name())
+			case RUNRES_FAIL:
+				nFailed += 1
+				quitAll := quitAll()
+				fmt.Printf(
+					"\n>> Failure #%d encountered! Exit code: %d. Output:\n",
+					nFailed,
+					run.exitCode)
+				printOutput(run)
+				fmt.Printf(
+					"<< (#%d output end, exit code %d)\n",
+					nFailed,
+					run.exitCode)
+				if quitAll {
+					println("Quitting all jobs.")
+				}
+				os.Remove(run.oupfile.Name())
 			}
-			fmt.Println(string(oup))
+		case <-sigint:
+			quitAll()
+			println(">> Ctrl-C signal, quitting all jobs.")
+		}
+	}
+}
+
+func printOutput(run Run) {
+	oup, readerr := io.ReadAll(run.oupfile)
+	if readerr != nil {
+		log.Fatal(readerr)
+	}
+	fmt.Println(string(oup))
+}
+
+type RunResult string
+
+const (
+	RUNRES_OK               RunResult = "OK"
+	RUNRES_FAILED_EXECUTING RunResult = "FAILED_EXECUTING"
+	RUNRES_FAIL             RunResult = "FAIL"
+)
+
+type Run struct {
+	result   RunResult
+	oupfile  *os.File
+	exitCode int
+}
+
+func run(cmd []string, runs chan<- Run, quit <-chan bool, done chan<- bool) {
+	for {
+		select {
+		case <-quit:
+			done <- true
+			return
 		default:
-			panic(err)
+		}
+		oupfile, tmpf_err := ioutil.TempFile("", ".tofail_oup")
+		if tmpf_err != nil {
+			log.Fatal(tmpf_err)
+		}
+		exec_cmd := exec.Command(cmd[0], cmd[1:]...)
+		exec_cmd.Stdout = oupfile
+		exec_cmd.Stderr = oupfile
+		err := exec_cmd.Run()
+		if err == nil {
+			runs <- Run{result: RUNRES_OK, oupfile: oupfile, exitCode: 0}
+		} else {
+			switch e := err.(type) {
+			case *exec.Error:
+				runs <- Run{result: RUNRES_FAILED_EXECUTING, oupfile: oupfile}
+			case *exec.ExitError:
+				oupfile.Seek(0, 0)
+				runs <- Run{result: RUNRES_FAIL, oupfile: oupfile, exitCode: e.ExitCode()}
+			default:
+				runs <- Run{result: RUNRES_FAILED_EXECUTING, oupfile: oupfile}
+			}
 		}
 	}
 }
