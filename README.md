@@ -11,7 +11,7 @@ combination with sanitizers, AppVerifier, or similar instrumentation.
 go install github.com/mheister/tofail
 ```
 
-Refer to `go help install` on the intall location.
+Refer to `go help install` on the install location.
 
 ### Examples
 
