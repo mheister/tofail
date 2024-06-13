@@ -15,7 +15,7 @@ Refer to `go help install` on the intall location.
 
 ### Examples
 
-#### Execute the `false` command until it fails, i.e., once:
+#### Execute the `false` command until it fails, i.e., once
 ```console
 ❯ tofail false
 Executing command  [false]  repeatedly in  1  job(s)
@@ -25,7 +25,7 @@ Executing command  [false]  repeatedly in  1  job(s)
 << (#1 output end, exit code 1)
 ```
 
-#### Execute some program until it fails:
+#### Execute some program until it fails
 ```console
 ❯ tofail ./my-buggy-program --my-prog-arg
 Executing command  [false]  repeatedly in  1  job(s)
@@ -35,7 +35,7 @@ Assertion failed in my_superoptimized_kernel.cpp:122: assert(skill > 0);
 << (#1 output end, exit code 1)
 ```
 
-#### Execute some program until it fails, in multiple parallel jobs:
+#### Execute some program until it fails, in multiple parallel jobs
 ```console
 ❯ tofail -j 4 ./my-buggy-program --my-prog-arg
 Executing command  [false]  repeatedly in  1  job(s)
@@ -52,7 +52,7 @@ Assertion failed in my_superoptimized_kernel.cpp:122: assert(skill > 0);
 `tofail` will stop all jobs when the first failure is encountered, some remaining jobs may
 still also fail.
 
-#### Execute a command until it fails *or hits a timeout*:
+#### Execute a command until it fails *or hits a timeout*
 ```console
 ❯ tofail --timeout 1 sleep 2
 Executing command  [sleep 2]  repeatedly in  1  job(s)
