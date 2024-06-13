@@ -20,6 +20,9 @@ func main() {
 	if *njobs < 1 {
 		log.Fatal("Error: Please specify >= 1 jobs")
 	}
+	if flag.NArg() < 1 {
+		log.Fatal("Error: Missing command")
+	}
 	subject := os.Args[len(os.Args)-flag.NArg():]
 
 	fmt.Println("Executing command ", subject, " repeatedly in ", *njobs, " job(s)")
