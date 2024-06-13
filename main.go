@@ -11,10 +11,16 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"time"
 )
 
 func main() {
 	njobs := flag.Int("j", 1, "Number of concurrent jobs")
+	timeoutSec := flag.Int(
+		"timeout",
+		0,
+		"Give a number of seconds after which tofail should view a command as "+
+			"failed (stuck) and print its PID")
 	flag.Parse()
 
 	if *njobs < 1 {
@@ -35,8 +41,8 @@ func main() {
 
 	var quitChans []chan bool
 	for i := 0; i < *njobs; i++ {
-		quitChans = append(quitChans, make(chan bool))
-		go run(subject, runs, quitChans[len(quitChans)-1], done)
+		quitChans = append(quitChans, make(chan bool, 1))
+		go job(subject, *timeoutSec, runs, quitChans[len(quitChans)-1], done)
 	}
 
 	quitting := false
@@ -60,8 +66,9 @@ func main() {
 		case run := <-runs:
 			switch run.result {
 			case RUNRES_FAILED_EXECUTING:
-				if quitAll() {
-					println(">> Failed to execute command, quitting all jobs!")
+				println("Failed to execute command!")
+				if quitAll()  && *njobs > 1 {
+					println("Quitting all jobs.")
 				}
 				os.Remove(run.oupfile.Name())
 			case RUNRES_OK:
@@ -78,10 +85,19 @@ func main() {
 					"<< (#%d output end, exit code %d)\n",
 					nFailed,
 					run.exitCode)
-				if quitAll {
+				if quitAll && *njobs > 1 {
 					println("Quitting all jobs.")
 				}
 				os.Remove(run.oupfile.Name())
+			case RUNRES_TIMEOUT:
+				quitAll := quitAll()
+				fmt.Printf(
+					"\nTimeout encountered! PID is %d, process is connected to output file '%s'\n",
+					run.timeoutPid, run.oupfile.Name())
+				println("The output file will not be deleted automatically.")
+				if quitAll && *njobs > 1 {
+					println("Quitting all jobs.")
+				}
 			}
 		case <-sigint:
 			quitAll()
@@ -104,42 +120,66 @@ const (
 	RUNRES_OK               RunResult = "OK"
 	RUNRES_FAILED_EXECUTING RunResult = "FAILED_EXECUTING"
 	RUNRES_FAIL             RunResult = "FAIL"
+	RUNRES_TIMEOUT          RunResult = "TIMEOUT"
 )
 
 type Run struct {
-	result   RunResult
-	oupfile  *os.File
-	exitCode int
+	result     RunResult
+	oupfile    *os.File
+	exitCode   int
+	timeoutPid int
 }
 
-func run(cmd []string, runs chan<- Run, quit <-chan bool, done chan<- bool) {
+func job(cmd []string, timeoutSec int, runs chan<- Run, quit <-chan bool, done chan<- bool) {
+loop:
 	for {
 		select {
 		case <-quit:
-			done <- true
-			return
+			break loop
 		default:
 		}
-		oupfile, tmpf_err := ioutil.TempFile("", ".tofail_oup")
+		oupfile, tmpf_err := ioutil.TempFile(".", ".tofail_oup")
 		if tmpf_err != nil {
 			log.Fatal(tmpf_err)
 		}
-		exec_cmd := exec.Command(cmd[0], cmd[1:]...)
-		exec_cmd.Stdout = oupfile
-		exec_cmd.Stderr = oupfile
-		err := exec_cmd.Run()
-		if err == nil {
-			runs <- Run{result: RUNRES_OK, oupfile: oupfile, exitCode: 0}
+		execCmd := exec.Command(cmd[0], cmd[1:]...)
+		execCmd.Stdout = oupfile
+		execCmd.Stderr = oupfile
+		var timeout <-chan time.Time
+		if timeoutSec > 0 {
+			timeout = time.NewTimer(time.Duration(timeoutSec) * time.Second).C
 		} else {
-			switch e := err.(type) {
-			case *exec.Error:
-				runs <- Run{result: RUNRES_FAILED_EXECUTING, oupfile: oupfile}
-			case *exec.ExitError:
-				oupfile.Seek(0, 0)
-				runs <- Run{result: RUNRES_FAIL, oupfile: oupfile, exitCode: e.ExitCode()}
-			default:
-				runs <- Run{result: RUNRES_FAILED_EXECUTING, oupfile: oupfile}
+			timeout = make(chan time.Time)
+		}
+		pid, cmdDone := make(chan int, 1), make(chan error)
+		go func() {
+			startErr := execCmd.Start()
+			if startErr != nil {
+				cmdDone <- startErr
+				return
+			}
+			pid <- execCmd.Process.Pid
+			cmdDone <- execCmd.Wait()
+		}()
+		select {
+		case <-timeout:
+			runs <- Run{result: RUNRES_TIMEOUT, oupfile: oupfile, timeoutPid: <-pid}
+			<- cmdDone
+			break loop
+		case err := <-cmdDone:
+			if err == nil {
+				runs <- Run{result: RUNRES_OK, oupfile: oupfile, exitCode: 0}
+			} else {
+				switch e := err.(type) {
+				case *exec.ExitError:
+					oupfile.Seek(0, 0)
+					runs <- Run{result: RUNRES_FAIL, oupfile: oupfile, exitCode: e.ExitCode()}
+				default:
+					runs <- Run{result: RUNRES_FAILED_EXECUTING, oupfile: oupfile}
+				}
+				break loop
 			}
 		}
 	}
+	done <- true
 }
