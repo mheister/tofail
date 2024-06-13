@@ -5,6 +5,14 @@ Repeat a command *to failure*, i.e., until it returns with non-zero exit code.
 This is intended as a helper utility to reproduce sporadic errors. Best used in
 combination with sanitizers, AppVerifier, or similar instrumentation.
 
+### Installing
+
+```sh
+go install github.com/mheister/tofail
+```
+
+Refer to `go help install` on the intall location.
+
 ### Examples
 
 #### Execute the `false` command until it fails, i.e., once:
