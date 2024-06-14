@@ -46,9 +46,9 @@ func main() {
 		jobs[i] = StartRunner(testee, resultChan, jobDoneChan)
 	}
 
-	quitting := false
-	quitAll := func() bool {
-		if quitting {
+	stopping := false
+	stopAll := func() bool {
+		if stopping {
 			return false
 		}
 		for _, c := range jobs {
@@ -66,15 +66,15 @@ func main() {
 			switch run.result {
 			case RUNRES_FAILED_EXECUTING:
 				println("Failed to execute command!")
-				if quitAll() && *njobs > 1 {
-					println("Quitting all jobs.")
+				if stopAll() && *njobs > 1 {
+					println("Stopping all jobs.")
 				}
 				os.Remove(run.oupfile.Name())
 			case RUNRES_OK:
 				os.Remove(run.oupfile.Name())
 			case RUNRES_FAIL:
 				nFailed += 1
-				quitAll := quitAll()
+				stopAll := stopAll()
 				fmt.Printf(
 					"\n>> Failure #%d encountered! Exit code: %d. Output:\n",
 					nFailed,
@@ -84,23 +84,23 @@ func main() {
 					"<< (#%d output end, exit code %d)\n",
 					nFailed,
 					run.exitCode)
-				if quitAll && *njobs > 1 {
-					println("Quitting all jobs.")
+				if stopAll && *njobs > 1 {
+					println("Stopping all jobs.")
 				}
 				os.Remove(run.oupfile.Name())
 			case RUNRES_TIMEOUT:
-				quitAll := quitAll()
+				stopAll := stopAll()
 				fmt.Printf(
 					"\nTimeout encountered! PID is %d, process is connected to output file '%s'\n",
 					run.timeoutPid, run.oupfile.Name())
 				println("The output file will not be deleted automatically.")
-				if quitAll && *njobs > 1 {
-					println("Quitting all jobs.")
+				if stopAll && *njobs > 1 {
+					println("Stopping all jobs.")
 				}
 			}
 		case <-sigint:
-			quitAll()
-			println(">> Ctrl-C signal, quitting all jobs.")
+			stopAll()
+			println(">> Ctrl-C signal, stopping all jobs.")
 		}
 	}
 }

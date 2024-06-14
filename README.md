@@ -43,7 +43,7 @@ Executing command  [false]  repeatedly in  1  job(s)
 >> Failure #1 encountered! Exit code: 1. Output:
 Assertion failed in my_superoptimized_kernel.cpp:122: assert(skill > 0);
 << (#1 output end, exit code 1)
-Quitting all jobs.
+Stopping all jobs.
 
 >> Failure #2 encountered! Exit code: 1. Output:
 Assertion failed in my_superoptimized_kernel.cpp:122: assert(skill > 0);
