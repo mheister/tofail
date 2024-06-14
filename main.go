@@ -33,7 +33,7 @@ func main() {
 
 	fmt.Println("Executing command ", subject, " repeatedly in ", *njobs, " job(s)")
 
-	runs := make(chan Run, 1024)
+	runs := make(chan RunResult, 1024)
 	done := make(chan bool, 1)
 
 	sigint := make(chan os.Signal)
@@ -42,7 +42,11 @@ func main() {
 	var quitChans []chan bool
 	for i := 0; i < *njobs; i++ {
 		quitChans = append(quitChans, make(chan bool, 1))
-		go job(subject, *timeoutSec, runs, quitChans[len(quitChans)-1], done)
+		job := RunnerJob{
+			cmd:        subject,
+			timeoutSec: *timeoutSec,
+		}
+		go job.run(runs, quitChans[len(quitChans)-1], done)
 	}
 
 	quitting := false
@@ -67,7 +71,7 @@ func main() {
 			switch run.result {
 			case RUNRES_FAILED_EXECUTING:
 				println("Failed to execute command!")
-				if quitAll()  && *njobs > 1 {
+				if quitAll() && *njobs > 1 {
 					println("Quitting all jobs.")
 				}
 				os.Remove(run.oupfile.Name())
@@ -106,7 +110,7 @@ func main() {
 	}
 }
 
-func printOutput(run Run) {
+func printOutput(run RunResult) {
 	oup, readerr := io.ReadAll(run.oupfile)
 	if readerr != nil {
 		log.Fatal(readerr)
@@ -114,23 +118,28 @@ func printOutput(run Run) {
 	fmt.Println(string(oup))
 }
 
-type RunResult string
+type RunnerJob struct {
+	cmd        []string
+	timeoutSec int
+}
+
+type RunResultType string
 
 const (
-	RUNRES_OK               RunResult = "OK"
-	RUNRES_FAILED_EXECUTING RunResult = "FAILED_EXECUTING"
-	RUNRES_FAIL             RunResult = "FAIL"
-	RUNRES_TIMEOUT          RunResult = "TIMEOUT"
+	RUNRES_OK               RunResultType = "OK"
+	RUNRES_FAILED_EXECUTING RunResultType = "FAILED_EXECUTING"
+	RUNRES_FAIL             RunResultType = "FAIL"
+	RUNRES_TIMEOUT          RunResultType = "TIMEOUT"
 )
 
-type Run struct {
-	result     RunResult
+type RunResult struct {
+	result     RunResultType
 	oupfile    *os.File
 	exitCode   int
 	timeoutPid int
 }
 
-func job(cmd []string, timeoutSec int, runs chan<- Run, quit <-chan bool, done chan<- bool) {
+func (job RunnerJob) run(results chan<- RunResult, quit <-chan bool, done chan<- bool) {
 loop:
 	for {
 		select {
@@ -142,12 +151,12 @@ loop:
 		if tmpf_err != nil {
 			log.Fatal(tmpf_err)
 		}
-		execCmd := exec.Command(cmd[0], cmd[1:]...)
+		execCmd := exec.Command(job.cmd[0], job.cmd[1:]...)
 		execCmd.Stdout = oupfile
 		execCmd.Stderr = oupfile
 		var timeout <-chan time.Time
-		if timeoutSec > 0 {
-			timeout = time.NewTimer(time.Duration(timeoutSec) * time.Second).C
+		if job.timeoutSec > 0 {
+			timeout = time.NewTimer(time.Duration(job.timeoutSec) * time.Second).C
 		} else {
 			timeout = make(chan time.Time)
 		}
@@ -163,19 +172,19 @@ loop:
 		}()
 		select {
 		case <-timeout:
-			runs <- Run{result: RUNRES_TIMEOUT, oupfile: oupfile, timeoutPid: <-pid}
-			<- cmdDone
+			results <- RunResult{result: RUNRES_TIMEOUT, oupfile: oupfile, timeoutPid: <-pid}
+			<-cmdDone
 			break loop
 		case err := <-cmdDone:
 			if err == nil {
-				runs <- Run{result: RUNRES_OK, oupfile: oupfile, exitCode: 0}
+				results <- RunResult{result: RUNRES_OK, oupfile: oupfile, exitCode: 0}
 			} else {
 				switch e := err.(type) {
 				case *exec.ExitError:
 					oupfile.Seek(0, 0)
-					runs <- Run{result: RUNRES_FAIL, oupfile: oupfile, exitCode: e.ExitCode()}
+					results <- RunResult{result: RUNRES_FAIL, oupfile: oupfile, exitCode: e.ExitCode()}
 				default:
-					runs <- Run{result: RUNRES_FAILED_EXECUTING, oupfile: oupfile}
+					results <- RunResult{result: RUNRES_FAILED_EXECUTING, oupfile: oupfile}
 				}
 				break loop
 			}
