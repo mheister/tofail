@@ -10,9 +10,33 @@ import (
 	"time"
 )
 
-type RunnerJob struct {
+type Testee struct {
 	cmd        []string
 	timeoutSec int
+}
+
+func StartRunner(testee Testee, results chan<- RunResult, done chan<- bool) RunnerJob {
+	res := runnerJob{
+		cmd:        testee.cmd,
+		timeoutSec: testee.timeoutSec,
+		resultChan: results,
+		doneChan:   done,
+		stopChan:   make(chan bool, 1),
+	}
+	go res.run()
+	return &res
+}
+
+type RunnerJob interface {
+	stop()
+}
+
+type runnerJob struct {
+	cmd        []string
+	timeoutSec int
+	resultChan chan<- RunResult
+	doneChan   chan<- bool
+	stopChan   chan bool
 }
 
 type RunResultType string
@@ -31,11 +55,11 @@ type RunResult struct {
 	timeoutPid int
 }
 
-func (job RunnerJob) run(results chan<- RunResult, quit <-chan bool, done chan<- bool) {
+func (job *runnerJob) run() {
 loop:
 	for {
 		select {
-		case <-quit:
+		case <-job.stopChan:
 			break loop
 		default:
 		}
@@ -64,23 +88,28 @@ loop:
 		}()
 		select {
 		case <-timeout:
-			results <- RunResult{result: RUNRES_TIMEOUT, oupfile: oupfile, timeoutPid: <-pid}
+			job.resultChan <- RunResult{result: RUNRES_TIMEOUT, oupfile: oupfile, timeoutPid: <-pid}
 			<-cmdDone
 			break loop
 		case err := <-cmdDone:
 			if err == nil {
-				results <- RunResult{result: RUNRES_OK, oupfile: oupfile, exitCode: 0}
+				job.resultChan <- RunResult{result: RUNRES_OK, oupfile: oupfile, exitCode: 0}
 			} else {
 				switch e := err.(type) {
 				case *exec.ExitError:
 					oupfile.Seek(0, 0)
-					results <- RunResult{result: RUNRES_FAIL, oupfile: oupfile, exitCode: e.ExitCode()}
+					job.resultChan <- RunResult{result: RUNRES_FAIL, oupfile: oupfile, exitCode: e.ExitCode()}
 				default:
-					results <- RunResult{result: RUNRES_FAILED_EXECUTING, oupfile: oupfile}
+					job.resultChan <- RunResult{result: RUNRES_FAILED_EXECUTING, oupfile: oupfile}
 				}
 				break loop
 			}
 		}
 	}
-	done <- true
+	job.doneChan <- true
+}
+
+func (job *runnerJob) stop() {
+	job.stopChan <- true
+	close(job.stopChan)
 }

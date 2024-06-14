@@ -30,20 +30,20 @@ func main() {
 
 	fmt.Println("Executing command ", subject, " repeatedly in ", *njobs, " job(s)")
 
-	runs := make(chan RunResult, 1024)
-	done := make(chan bool, 1)
+	resultChan := make(chan RunResult, 1024)
+	jobDoneChan := make(chan bool, 1)
 
 	sigint := make(chan os.Signal)
 	signal.Notify(sigint, os.Interrupt)
 
-	var quitChans []chan bool
+	testee := Testee{
+		cmd:        subject,
+		timeoutSec: *timeoutSec,
+	}
+
+	jobs := make([]RunnerJob, *njobs)
 	for i := 0; i < *njobs; i++ {
-		quitChans = append(quitChans, make(chan bool, 1))
-		job := RunnerJob{
-			cmd:        subject,
-			timeoutSec: *timeoutSec,
-		}
-		go job.run(runs, quitChans[len(quitChans)-1], done)
+		jobs[i] = StartRunner(testee, resultChan, jobDoneChan)
 	}
 
 	quitting := false
@@ -51,10 +51,8 @@ func main() {
 		if quitting {
 			return false
 		}
-		quitting = true
-		for _, c := range quitChans {
-			c <- true
-			close(c)
+		for _, c := range jobs {
+			c.stop()
 		}
 		return true
 	}
@@ -62,9 +60,9 @@ func main() {
 	nFailed := 0
 	for jobsDone := 0; jobsDone < *njobs; {
 		select {
-		case <-done:
+		case <-jobDoneChan:
 			jobsDone += 1
-		case run := <-runs:
+		case run := <-resultChan:
 			switch run.result {
 			case RUNRES_FAILED_EXECUTING:
 				println("Failed to execute command!")
