@@ -17,11 +17,12 @@ type Testee struct {
 
 func StartRunner(testee Testee, results chan<- RunResult, done chan<- bool) RunnerJob {
 	res := runnerJob{
-		cmd:        testee.cmd,
-		timeoutSec: testee.timeoutSec,
-		resultChan: results,
-		doneChan:   done,
-		stopChan:   make(chan bool, 1),
+		cmd:         testee.cmd,
+		timeoutSec:  testee.timeoutSec,
+		resultChan:  results,
+		doneChan:    done,
+		stopChan:    make(chan bool, 1),
+		execWrapper: GetOsExecWrapper(),
 	}
 	go res.run()
 	return &res
@@ -32,11 +33,12 @@ type RunnerJob interface {
 }
 
 type runnerJob struct {
-	cmd        []string
-	timeoutSec int
-	resultChan chan<- RunResult
-	doneChan   chan<- bool
-	stopChan   chan bool
+	cmd         []string
+	timeoutSec  int
+	resultChan  chan<- RunResult
+	doneChan    chan<- bool
+	stopChan    chan bool
+	execWrapper ExecWrapper
 }
 
 type RunResultType string
@@ -67,31 +69,29 @@ loop:
 		if tmpf_err != nil {
 			log.Fatal(tmpf_err)
 		}
-		execCmd := exec.Command(job.cmd[0], job.cmd[1:]...)
-		execCmd.Stdout = oupfile
-		execCmd.Stderr = oupfile
+		execCmd := job.execWrapper.Command(job.cmd, oupfile)
 		var timeout <-chan time.Time
 		if job.timeoutSec > 0 {
 			timeout = time.NewTimer(time.Duration(job.timeoutSec) * time.Second).C
 		} else {
 			timeout = make(chan time.Time)
 		}
-		pid, cmdDone := make(chan int, 1), make(chan error)
+		pidChan, cmdDoneChan := make(chan int, 1), make(chan error)
 		go func() {
-			startErr := execCmd.Start()
+			startErr, pid := execCmd.Start()
 			if startErr != nil {
-				cmdDone <- startErr
+				cmdDoneChan <- startErr
 				return
 			}
-			pid <- execCmd.Process.Pid
-			cmdDone <- execCmd.Wait()
+			pidChan <- pid
+			cmdDoneChan <- execCmd.Wait()
 		}()
 		select {
 		case <-timeout:
-			job.resultChan <- RunResult{result: RUNRES_TIMEOUT, oupfile: oupfile, timeoutPid: <-pid}
-			<-cmdDone
+			job.resultChan <- RunResult{result: RUNRES_TIMEOUT, oupfile: oupfile, timeoutPid: <-pidChan}
+			<-cmdDoneChan
 			break loop
-		case err := <-cmdDone:
+		case err := <-cmdDoneChan:
 			if err == nil {
 				job.resultChan <- RunResult{result: RUNRES_OK, oupfile: oupfile, exitCode: 0}
 			} else {
