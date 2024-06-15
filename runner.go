@@ -16,14 +16,24 @@ type Testee struct {
 }
 
 func StartRunner(testee Testee, results chan<- RunResult, done chan<- bool) RunnerJob {
+	return startRunner(testee, results, done, GetOsExecWrapper(), GetDefaultTimerFactory())
+}
+
+func startRunner(
+	testee Testee,
+	results chan<- RunResult,
+	done chan<- bool,
+	execWrapper ExecWrapper,
+	timerFactory TimerFactory,
+) RunnerJob {
 	res := runnerJob{
 		cmd:          testee.cmd,
 		timeoutSec:   testee.timeoutSec,
 		resultChan:   results,
 		doneChan:     done,
 		stopChan:     make(chan bool, 1),
-		execWrapper:  GetOsExecWrapper(),
-		timerFactory: GetDefaultTimerFactory(),
+		execWrapper:  execWrapper,
+		timerFactory: timerFactory,
 	}
 	go res.run()
 	return &res
