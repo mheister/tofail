@@ -17,12 +17,13 @@ type Testee struct {
 
 func StartRunner(testee Testee, results chan<- RunResult, done chan<- bool) RunnerJob {
 	res := runnerJob{
-		cmd:         testee.cmd,
-		timeoutSec:  testee.timeoutSec,
-		resultChan:  results,
-		doneChan:    done,
-		stopChan:    make(chan bool, 1),
-		execWrapper: GetOsExecWrapper(),
+		cmd:          testee.cmd,
+		timeoutSec:   testee.timeoutSec,
+		resultChan:   results,
+		doneChan:     done,
+		stopChan:     make(chan bool, 1),
+		execWrapper:  GetOsExecWrapper(),
+		timerFactory: GetDefaultTimerFactory(),
 	}
 	go res.run()
 	return &res
@@ -33,12 +34,13 @@ type RunnerJob interface {
 }
 
 type runnerJob struct {
-	cmd         []string
-	timeoutSec  int
-	resultChan  chan<- RunResult
-	doneChan    chan<- bool
-	stopChan    chan bool
-	execWrapper ExecWrapper
+	cmd          []string
+	timeoutSec   int
+	resultChan   chan<- RunResult
+	doneChan     chan<- bool
+	stopChan     chan bool
+	execWrapper  ExecWrapper
+	timerFactory TimerFactory
 }
 
 type RunResultType string
@@ -72,7 +74,7 @@ loop:
 		execCmd := job.execWrapper.Command(job.cmd, oupfile)
 		var timeout <-chan time.Time
 		if job.timeoutSec > 0 {
-			timeout = time.NewTimer(time.Duration(job.timeoutSec) * time.Second).C
+			timeout = job.timerFactory.NewTimer(time.Duration(job.timeoutSec) * time.Second)
 		} else {
 			timeout = make(chan time.Time)
 		}
