@@ -75,10 +75,11 @@ func TestRunnerJobAttemptsInvalidCommandAndFinishes(t *testing.T) {
 		TimeoutSec: 0,
 	}, resultChan, jobDoneChan, &execWrapper, &timerFactory)
 
+	oupfile := &os.File{}
 	execCommand.StartResultChan <- execwrapper.StartResult{
 		Error:   testError{},
 		Pid:     0,
-		Oupfile: &os.File{},
+		Oupfile: oupfile,
 	}
 	// StartResults channel not buffered, so execWrapper.Command() was called here
 	givenCmd := execWrapper.calls[len(execWrapper.calls)-1].cmd
@@ -88,6 +89,9 @@ func TestRunnerJobAttemptsInvalidCommandAndFinishes(t *testing.T) {
 	runResult := <-resultChan
 	if runResult.Result != RUNRES_FAILED_EXECUTING {
 		t.Errorf("Expected RUNRES_FAILED_EXECUTING")
+	}
+	if runResult.Oupfile != oupfile {
+		t.Errorf("Unexpected oupfile %p", oupfile)
 	}
 	<-jobDoneChan
 }
@@ -111,7 +115,8 @@ func TestRunnerJobExecutesFailingCommandAndFinishes(t *testing.T) {
 		TimeoutSec: 0,
 	}, resultChan, jobDoneChan, &execWrapper, &timerFactory)
 
-	execCommand.StartResultChan <- execwrapper.StartResult{}
+	oupfile := &os.File{}
+	execCommand.StartResultChan <- execwrapper.StartResult{Oupfile: oupfile}
 	// StartResults channel not buffered, so execWrapper.Command() was called here
 	givenCmd := execWrapper.calls[len(execWrapper.calls)-1].cmd
 	if !reflect.DeepEqual(givenCmd, []string{"my-cmd", "--my-arg"}) {
@@ -127,6 +132,9 @@ func TestRunnerJobExecutesFailingCommandAndFinishes(t *testing.T) {
 	}
 	if runResult.ExitCode != 77 {
 		t.Errorf("Expected exit code 77, was %d", runResult.ExitCode)
+	}
+	if runResult.Oupfile != oupfile {
+		t.Errorf("Unexpected oupfile %p", oupfile)
 	}
 	<-jobDoneChan
 }
@@ -151,11 +159,15 @@ func TestRunnerJobReatemptsUntilFailure(t *testing.T) {
 	}, resultChan, jobDoneChan, &execWrapper, &timerFactory)
 
 	for i := 0; i < 10; i++ {
-		execCommand.StartResultChan <- execwrapper.StartResult{}
+		oupfile := &os.File{}
+		execCommand.StartResultChan <- execwrapper.StartResult{Oupfile: oupfile}
 		execCommand.WaitResultChan <- execwrapper.RunResult{} // no error
 		runResult := <-resultChan
 		if runResult.Result != RUNRES_OK {
 			t.Errorf("Expected RUNRES_OK")
+		}
+		if runResult.Oupfile != oupfile {
+			t.Errorf("Unexpected oupfile %p", oupfile)
 		}
 	}
 	execCommand.StartResultChan <- execwrapper.StartResult{}
@@ -189,7 +201,8 @@ func TestRunnerStopsAfterIoErrorAndReportsFailure(t *testing.T) {
 		TimeoutSec: 0,
 	}, resultChan, jobDoneChan, &execWrapper, &timerFactory)
 
-	execCommand.StartResultChan <- execwrapper.StartResult{}
+	oupfile := &os.File{}
+	execCommand.StartResultChan <- execwrapper.StartResult{Oupfile: oupfile}
 	execCommand.WaitResultChan <- execwrapper.RunResult{
 		ExitCode: 0,
 		IoError:  testError{},
@@ -197,6 +210,9 @@ func TestRunnerStopsAfterIoErrorAndReportsFailure(t *testing.T) {
 	runResult := <-resultChan
 	if runResult.Result != RUNRES_FAIL {
 		t.Errorf("Expected RUNRES_FAIL")
+	}
+	if runResult.Oupfile != oupfile {
+		t.Errorf("Unexpected oupfile %p", oupfile)
 	}
 	<-jobDoneChan
 }
@@ -250,10 +266,11 @@ func TestRunnerStopsAfterTimeoutAndReportsTimeout(t *testing.T) {
 		TimeoutSec: 1,
 	}, resultChan, jobDoneChan, &execWrapper, &timerFactory)
 
+	oupfile := &os.File{}
 	execCommand.StartResultChan <- execwrapper.StartResult{
 		Error:   nil,
 		Pid:     1337,
-		Oupfile: &os.File{},
+		Oupfile: oupfile,
 	}
 	if (len(timerFactory.calls) != 1) || timerFactory.calls[0] != time.Second {
 		t.Errorf("Expected runner to get a timeout of 1s, got %s", timerFactory.calls)
@@ -266,6 +283,9 @@ func TestRunnerStopsAfterTimeoutAndReportsTimeout(t *testing.T) {
 	}
 	if runResult.TimeoutPid != 1337 {
 		t.Errorf("Expected TimeoutPid 1337, was %d", runResult.TimeoutPid)
+	}
+	if runResult.Oupfile != oupfile {
+		t.Errorf("Unexpected oupfile %p", oupfile)
 	}
 	<-jobDoneChan
 }
