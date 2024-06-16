@@ -3,8 +3,6 @@
 package main
 
 import (
-	"io/ioutil"
-	"log"
 	"os"
 	"os/exec"
 	"time"
@@ -77,42 +75,45 @@ loop:
 			break loop
 		default:
 		}
-		oupfile, tmpf_err := ioutil.TempFile(".", ".tofail_oup")
-		if tmpf_err != nil {
-			log.Fatal(tmpf_err)
-		}
-		execCmd := job.execWrapper.Command(job.cmd, oupfile)
+		execCmd := job.execWrapper.Command(job.cmd)
 		var timeout <-chan time.Time
 		if job.timeoutSec > 0 {
 			timeout = job.timerFactory.NewTimer(time.Duration(job.timeoutSec) * time.Second)
 		} else {
 			timeout = make(chan time.Time)
 		}
-		pidChan, cmdDoneChan := make(chan int, 1), make(chan error)
+		startChan, cmdDoneChan := make(chan StartResult, 1), make(chan error)
 		go func() {
-			startErr, pid := execCmd.Start()
-			if startErr != nil {
-				cmdDoneChan <- startErr
+			startRes:= execCmd.StartWithTmpfile()
+			startChan <- startRes
+			if startRes.Error != nil {
 				return
 			}
-			pidChan <- pid
 			cmdDoneChan <- execCmd.Wait()
 		}()
+		startRes := <- startChan
+		if startRes.Error != nil {
+			job.resultChan <- RunResult{result: RUNRES_FAILED_EXECUTING, oupfile: startRes.Oupfile}
+			break loop
+		}
 		select {
 		case <-timeout:
-			job.resultChan <- RunResult{result: RUNRES_TIMEOUT, oupfile: oupfile, timeoutPid: <-pidChan}
+			job.resultChan <- RunResult{
+				result: RUNRES_TIMEOUT, oupfile: startRes.Oupfile, timeoutPid: startRes.Pid}
 			<-cmdDoneChan
 			break loop
 		case err := <-cmdDoneChan:
 			if err == nil {
-				job.resultChan <- RunResult{result: RUNRES_OK, oupfile: oupfile, exitCode: 0}
+				job.resultChan <- RunResult{result: RUNRES_OK, oupfile: startRes.Oupfile, exitCode: 0}
 			} else {
 				switch e := err.(type) {
 				case *exec.ExitError:
-					oupfile.Seek(0, 0)
-					job.resultChan <- RunResult{result: RUNRES_FAIL, oupfile: oupfile, exitCode: e.ExitCode()}
+					startRes.Oupfile.Seek(0, 0)
+					job.resultChan <- RunResult{
+						result: RUNRES_FAIL, oupfile: startRes.Oupfile, exitCode: e.ExitCode()}
 				default:
-					job.resultChan <- RunResult{result: RUNRES_FAILED_EXECUTING, oupfile: oupfile}
+					job.resultChan <- RunResult{
+						result: RUNRES_FAILED_EXECUTING, oupfile: startRes.Oupfile}
 				}
 				break loop
 			}
