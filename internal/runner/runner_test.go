@@ -229,3 +229,43 @@ func TestRunnerStopsAfterStopMethod(t *testing.T) {
 
 	<-jobDoneChan
 }
+
+func TestRunnerStopsAfterTimeoutAndReportsTimeout(t *testing.T) {
+	execCommand := testExecCommand{
+		StartResultChan: make(chan execwrapper.StartResult),
+		WaitResultChan:  make(chan execwrapper.RunResult),
+		StartCallCount:  0,
+		WaitCallCount:   0,
+	}
+	execWrapper := testExecWrapper{command: &execCommand}
+	timerFactory := testTimerFactory{
+		c: make(chan time.Time),
+	}
+
+	resultChan := make(chan RunResult, 1)
+	jobDoneChan := make(chan bool)
+
+	startRunner(Testee{
+		Cmd:        []string{"my-cmd", "--my-arg"},
+		TimeoutSec: 1,
+	}, resultChan, jobDoneChan, &execWrapper, &timerFactory)
+
+	execCommand.StartResultChan <- execwrapper.StartResult{
+		Error:   nil,
+		Pid:     1337,
+		Oupfile: &os.File{},
+	}
+	if (len(timerFactory.calls) != 1) || timerFactory.calls[0] != time.Second {
+		t.Errorf("Expected runner to get a timeout of 1s, got %s", timerFactory.calls)
+	}
+	timerFactory.c <- time.Now()
+	execCommand.WaitResultChan <- execwrapper.RunResult{}
+	runResult := <-resultChan
+	if runResult.Result != RUNRES_TIMEOUT {
+		t.Errorf("Expected RUNRES_TIMEOUT")
+	}
+	if runResult.TimeoutPid != 1337 {
+		t.Errorf("Expected TimeoutPid 1337, was %d", runResult.TimeoutPid)
+	}
+	<-jobDoneChan
+}
