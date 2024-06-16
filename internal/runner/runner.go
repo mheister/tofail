@@ -3,8 +3,8 @@
 package runner
 
 import (
+	"log"
 	"os"
-	"os/exec"
 	"time"
 
 	"github.com/mheister/tofail/internal/execwrapper"
@@ -90,7 +90,8 @@ loop:
 		} else {
 			timeout = make(chan time.Time)
 		}
-		startChan, cmdDoneChan := make(chan execwrapper.StartResult, 1), make(chan error)
+		startChan := make(chan execwrapper.StartResult, 1)
+		cmdDoneChan := make(chan execwrapper.RunResult)
 		go func() {
 			startRes := execCmd.StartWithTmpfile()
 			startChan <- startRes
@@ -110,21 +111,17 @@ loop:
 				Result: RUNRES_TIMEOUT, Oupfile: startRes.Oupfile, TimeoutPid: startRes.Pid}
 			<-cmdDoneChan
 			break loop
-		case err := <-cmdDoneChan:
-			if err == nil {
+		case result := <-cmdDoneChan:
+			if result.ExitCode == 0 && result.IoError == nil {
 				job.resultChan <- RunResult{Result: RUNRES_OK, Oupfile: startRes.Oupfile, ExitCode: 0}
-			} else {
-				switch e := err.(type) {
-				case *exec.ExitError:
-					startRes.Oupfile.Seek(0, 0)
-					job.resultChan <- RunResult{
-						Result: RUNRES_FAIL, Oupfile: startRes.Oupfile, ExitCode: e.ExitCode()}
-				default:
-					job.resultChan <- RunResult{
-						Result: RUNRES_FAILED_EXECUTING, Oupfile: startRes.Oupfile}
-				}
-				break loop
+				continue
 			}
+			if result.IoError != nil {
+				log.Println("Warning: Command", job.cmd, "likely enountered I/O error")
+			}
+			job.resultChan <- RunResult{
+				Result: RUNRES_FAIL, Oupfile: startRes.Oupfile, ExitCode: result.ExitCode}
+			break loop
 		}
 	}
 	job.doneChan <- true

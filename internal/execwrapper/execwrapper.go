@@ -19,9 +19,14 @@ type StartResult struct {
 	Oupfile *os.File
 }
 
+type RunResult struct {
+	ExitCode int
+	IoError error
+}
+
 type ExecCommand interface {
 	StartWithTmpfile() StartResult
-	Wait() error
+	Wait() RunResult
 }
 
 func GetOsExecWrapper() ExecWrapper {
@@ -54,6 +59,12 @@ func (cmd *execCommand) StartWithTmpfile() StartResult {
 	}
 }
 
-func (cmd *execCommand) Wait() error {
-	return cmd.execCmd.Wait()
+func (cmd *execCommand) Wait() RunResult {
+	waitErr := cmd.execCmd.Wait()
+	switch e := waitErr.(type) {
+	case *exec.ExitError:
+		return RunResult{e.ExitCode(), nil}
+	default:
+		return RunResult{-1, e}
+	}
 }
