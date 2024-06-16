@@ -200,3 +200,32 @@ func TestRunnerStopsAfterIoErrorAndReportsFailure(t *testing.T) {
 	}
 	<-jobDoneChan
 }
+
+func TestRunnerStopsAfterStopMethod(t *testing.T) {
+	execCommand := testExecCommand{
+		StartResultChan: make(chan execwrapper.StartResult),
+		WaitResultChan:  make(chan execwrapper.RunResult),
+		StartCallCount:  0,
+		WaitCallCount:   0,
+	}
+	execWrapper := testExecWrapper{command: &execCommand}
+	timerFactory := testTimerFactory{}
+
+	resultChan := make(chan RunResult, 1)
+	jobDoneChan := make(chan bool)
+
+	runner := startRunner(Testee{
+		Cmd:        []string{"my-cmd", "--my-arg"},
+		TimeoutSec: 0,
+	}, resultChan, jobDoneChan, &execWrapper, &timerFactory)
+
+	execCommand.StartResultChan <- execwrapper.StartResult{}
+
+	// between start and wait for exec we know that it receives stop before the next
+	// run attempt
+	runner.Stop()
+
+	execCommand.WaitResultChan <- execwrapper.RunResult{}
+
+	<-jobDoneChan
+}
