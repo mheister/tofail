@@ -9,6 +9,8 @@ import (
 	"log"
 	"os"
 	"os/signal"
+
+	"github.com/mheister/tofail/internal/runner"
 )
 
 func main() {
@@ -30,20 +32,20 @@ func main() {
 
 	fmt.Println("Executing command ", subject, " repeatedly in ", *njobs, " job(s)")
 
-	resultChan := make(chan RunResult, 1024)
+	resultChan := make(chan runner.RunResult, 1024)
 	jobDoneChan := make(chan bool, 1)
 
 	sigint := make(chan os.Signal)
 	signal.Notify(sigint, os.Interrupt)
 
-	testee := Testee{
-		cmd:        subject,
-		timeoutSec: *timeoutSec,
+	testee := runner.Testee{
+		Cmd:        subject,
+		TimeoutSec: *timeoutSec,
 	}
 
-	jobs := make([]RunnerJob, *njobs)
+	jobs := make([]runner.Job, *njobs)
 	for i := 0; i < *njobs; i++ {
-		jobs[i] = StartRunner(testee, resultChan, jobDoneChan)
+		jobs[i] = runner.StartJob(testee, resultChan, jobDoneChan)
 	}
 
 	stopping := false
@@ -52,7 +54,7 @@ func main() {
 			return false
 		}
 		for _, c := range jobs {
-			c.stop()
+			c.Stop()
 		}
 		return true
 	}
@@ -63,36 +65,36 @@ func main() {
 		case <-jobDoneChan:
 			jobsDone += 1
 		case run := <-resultChan:
-			switch run.result {
-			case RUNRES_FAILED_EXECUTING:
+			switch run.Result {
+			case runner.RUNRES_FAILED_EXECUTING:
 				println("Failed to execute command!")
 				if stopAll() && *njobs > 1 {
 					println("Stopping all jobs.")
 				}
-				os.Remove(run.oupfile.Name())
-			case RUNRES_OK:
-				os.Remove(run.oupfile.Name())
-			case RUNRES_FAIL:
+				os.Remove(run.Oupfile.Name())
+			case runner.RUNRES_OK:
+				os.Remove(run.Oupfile.Name())
+			case runner.RUNRES_FAIL:
 				nFailed += 1
 				stopAll := stopAll()
 				fmt.Printf(
 					"\n>> Failure #%d encountered! Exit code: %d. Output:\n",
 					nFailed,
-					run.exitCode)
+					run.ExitCode)
 				printOutput(run)
 				fmt.Printf(
 					"<< (#%d output end, exit code %d)\n",
 					nFailed,
-					run.exitCode)
+					run.ExitCode)
 				if stopAll && *njobs > 1 {
 					println("Stopping all jobs.")
 				}
-				os.Remove(run.oupfile.Name())
-			case RUNRES_TIMEOUT:
+				os.Remove(run.Oupfile.Name())
+			case runner.RUNRES_TIMEOUT:
 				stopAll := stopAll()
 				fmt.Printf(
 					"\nTimeout encountered! PID is %d, process is connected to output file '%s'\n",
-					run.timeoutPid, run.oupfile.Name())
+					run.TimeoutPid, run.Oupfile.Name())
 				println("The output file will not be deleted automatically.")
 				if stopAll && *njobs > 1 {
 					println("Stopping all jobs.")
@@ -105,8 +107,8 @@ func main() {
 	}
 }
 
-func printOutput(run RunResult) {
-	oup, readerr := io.ReadAll(run.oupfile)
+func printOutput(run runner.RunResult) {
+	oup, readerr := io.ReadAll(run.Oupfile)
 	if readerr != nil {
 		log.Fatal(readerr)
 	}

@@ -1,32 +1,40 @@
 // Copyright (c) 2024 Marcel Heistermann
 
-package main
+package runner
 
 import (
 	"os"
 	"os/exec"
 	"time"
+
+	"github.com/mheister/tofail/internal/execwrapper"
+	"github.com/mheister/tofail/internal/timeout"
 )
 
 type Testee struct {
-	cmd        []string
-	timeoutSec int
+	Cmd        []string
+	TimeoutSec int
 }
 
-func StartRunner(testee Testee, results chan<- RunResult, done chan<- bool) RunnerJob {
-	return startRunner(testee, results, done, GetOsExecWrapper(), GetDefaultTimerFactory())
+func StartJob(testee Testee, results chan<- RunResult, done chan<- bool) Job {
+	return startRunner(
+		testee,
+		results,
+		done,
+		execwrapper.GetOsExecWrapper(),
+		timeout.GetDefaultTimerFactory())
 }
 
 func startRunner(
 	testee Testee,
 	results chan<- RunResult,
 	done chan<- bool,
-	execWrapper ExecWrapper,
-	timerFactory TimerFactory,
-) RunnerJob {
+	execWrapper execwrapper.ExecWrapper,
+	timerFactory timeout.TimerFactory,
+) Job {
 	res := runnerJob{
-		cmd:          testee.cmd,
-		timeoutSec:   testee.timeoutSec,
+		cmd:          testee.Cmd,
+		timeoutSec:   testee.TimeoutSec,
 		resultChan:   results,
 		doneChan:     done,
 		stopChan:     make(chan bool, 1),
@@ -37,8 +45,8 @@ func startRunner(
 	return &res
 }
 
-type RunnerJob interface {
-	stop()
+type Job interface {
+	Stop()
 }
 
 type runnerJob struct {
@@ -47,8 +55,8 @@ type runnerJob struct {
 	resultChan   chan<- RunResult
 	doneChan     chan<- bool
 	stopChan     chan bool
-	execWrapper  ExecWrapper
-	timerFactory TimerFactory
+	execWrapper  execwrapper.ExecWrapper
+	timerFactory timeout.TimerFactory
 }
 
 type RunResultType string
@@ -61,10 +69,10 @@ const (
 )
 
 type RunResult struct {
-	result     RunResultType
-	oupfile    *os.File
-	exitCode   int
-	timeoutPid int
+	Result     RunResultType
+	Oupfile    *os.File
+	ExitCode   int
+	TimeoutPid int
 }
 
 func (job *runnerJob) run() {
@@ -82,38 +90,38 @@ loop:
 		} else {
 			timeout = make(chan time.Time)
 		}
-		startChan, cmdDoneChan := make(chan StartResult, 1), make(chan error)
+		startChan, cmdDoneChan := make(chan execwrapper.StartResult, 1), make(chan error)
 		go func() {
-			startRes:= execCmd.StartWithTmpfile()
+			startRes := execCmd.StartWithTmpfile()
 			startChan <- startRes
 			if startRes.Error != nil {
 				return
 			}
 			cmdDoneChan <- execCmd.Wait()
 		}()
-		startRes := <- startChan
+		startRes := <-startChan
 		if startRes.Error != nil {
-			job.resultChan <- RunResult{result: RUNRES_FAILED_EXECUTING, oupfile: startRes.Oupfile}
+			job.resultChan <- RunResult{Result: RUNRES_FAILED_EXECUTING, Oupfile: startRes.Oupfile}
 			break loop
 		}
 		select {
 		case <-timeout:
 			job.resultChan <- RunResult{
-				result: RUNRES_TIMEOUT, oupfile: startRes.Oupfile, timeoutPid: startRes.Pid}
+				Result: RUNRES_TIMEOUT, Oupfile: startRes.Oupfile, TimeoutPid: startRes.Pid}
 			<-cmdDoneChan
 			break loop
 		case err := <-cmdDoneChan:
 			if err == nil {
-				job.resultChan <- RunResult{result: RUNRES_OK, oupfile: startRes.Oupfile, exitCode: 0}
+				job.resultChan <- RunResult{Result: RUNRES_OK, Oupfile: startRes.Oupfile, ExitCode: 0}
 			} else {
 				switch e := err.(type) {
 				case *exec.ExitError:
 					startRes.Oupfile.Seek(0, 0)
 					job.resultChan <- RunResult{
-						result: RUNRES_FAIL, oupfile: startRes.Oupfile, exitCode: e.ExitCode()}
+						Result: RUNRES_FAIL, Oupfile: startRes.Oupfile, ExitCode: e.ExitCode()}
 				default:
 					job.resultChan <- RunResult{
-						result: RUNRES_FAILED_EXECUTING, oupfile: startRes.Oupfile}
+						Result: RUNRES_FAILED_EXECUTING, Oupfile: startRes.Oupfile}
 				}
 				break loop
 			}
@@ -122,7 +130,7 @@ loop:
 	job.doneChan <- true
 }
 
-func (job *runnerJob) stop() {
+func (job *runnerJob) Stop() {
 	job.stopChan <- true
 	close(job.stopChan)
 }

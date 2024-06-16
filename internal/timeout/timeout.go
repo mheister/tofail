@@ -1,6 +1,6 @@
 // Copyright (c) 2024 Marcel Heistermann
 
-package main
+package timeout
 
 import "time"
 
