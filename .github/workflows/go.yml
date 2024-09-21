@@ -2,6 +2,7 @@ name: Go
 
 on:
   push:
+    # commits only
     tags-ignore:
       - '**'
 
