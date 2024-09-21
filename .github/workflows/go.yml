@@ -56,8 +56,8 @@ jobs:
         token: ${{ secrets.GITHUB_TOKEN }}
         tag: latest
         assets: |
-          tofail-*-linux-*.tar.gz*
-          tofail-*-windows-*.zip*
+          tofail-*-${{ matrix.goos }}-${{ matrix.goarch }}-*.tar.gz*
+          tofail-*-${{ matrix.goos }}-${{ matrix.goarch }}-*.zip*
     - run: echo "ASSET_TIMESTMP=$(date -u +%Y%m%d)" >> ${GITHUB_ENV}
     - run: echo "SHA_SHORT=$(git rev-parse --short HEAD)" >> ${GITHUB_ENV}
     - uses: wangyoucao577/go-release-action@6ac7dba1f9e61850053324549cb6bc88e4b473d2 # 1.51
