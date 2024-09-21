@@ -56,8 +56,8 @@ jobs:
         token: ${{ secrets.GITHUB_TOKEN }}
         tag: latest
         assets: |
-          tofail-*-${{ matrix.goos }}-${{ matrix.goarch }}-*.tar.gz*
-          tofail-*-${{ matrix.goos }}-${{ matrix.goarch }}-*.zip*
+          tofail-*-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz*
+          tofail-*-${{ matrix.goos }}-${{ matrix.goarch }}.zip*
         fail-if-no-assets: false
         fail-if-no-release: false
     - run: echo "ASSET_TIMESTMP=$(date -u +%Y%m%d)" >> ${GITHUB_ENV}
