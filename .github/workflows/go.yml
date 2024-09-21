@@ -2,8 +2,8 @@ name: Go
 
 on:
   push:
-    # commits only
-    tags-ignore:
+    # commits only, not tags
+    branches:
       - '**'
 
 permissions:
