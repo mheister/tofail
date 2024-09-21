@@ -40,7 +40,7 @@ jobs:
     needs: update-latest-release-tag
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # for go-release-action to upload assets
+      contents: write  # delete and upload assets
     strategy:
       matrix:
         goos: [linux, windows]
@@ -50,6 +50,14 @@ jobs:
             goos: windows
     steps:
     - uses: actions/checkout@v4
+    - name: Delete old release assets
+      uses: mknejp/delete-release-assets@a1a36d1b6c6ddd9226a08e9978a5b4b973d48c0d
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        tag: latest
+        assets: |
+          tofail-*-linux-*.tar.gz*
+          tofail-*-windows-*.zip*
     - run: echo "ASSET_TIMESTMP=$(date -u +%Y%m%d)" >> ${GITHUB_ENV}
     - run: echo "SHA_SHORT=$(git rev-parse --short HEAD)" >> ${GITHUB_ENV}
     - uses: wangyoucao577/go-release-action@6ac7dba1f9e61850053324549cb6bc88e4b473d2 # 1.51
