@@ -58,6 +58,8 @@ jobs:
         assets: |
           tofail-*-${{ matrix.goos }}-${{ matrix.goarch }}-*.tar.gz*
           tofail-*-${{ matrix.goos }}-${{ matrix.goarch }}-*.zip*
+        fail-if-no-assets: false
+        fail-if-no-release: false
     - run: echo "ASSET_TIMESTMP=$(date -u +%Y%m%d)" >> ${GITHUB_ENV}
     - run: echo "SHA_SHORT=$(git rev-parse --short HEAD)" >> ${GITHUB_ENV}
     - uses: wangyoucao577/go-release-action@6ac7dba1f9e61850053324549cb6bc88e4b473d2 # 1.51
